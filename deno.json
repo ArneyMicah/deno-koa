@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-env --env-file=.env.development --watch=static,src ./src/main.ts",
+    "start": "deno run --allow-net --allow-read --allow-env --env-file=.env.production ./src/main.ts",
+    "generate": "deno run -A cli/generate.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "imports": {
+    "@koa/router": "npm:@koa/router@^15.5.0",
+    "@std/path": "jsr:@std/path@^1.1.4",
+    "axios": "npm:axios@^1.16.0",
+    "koa": "npm:koa@^3.2.0",
+    "mysql2": "npm:mysql2@^3.22.3",
+    "oak": "https://deno.land/x/oak@v12.6.0/mod.ts",
+    "sequelize": "npm:sequelize@^6.37.8"
+  }
+}
