@@ -6,19 +6,21 @@ WORKDIR /app
 # Copy dependency manifests
 COPY deno.json deno.lock ./
 
-# Cache dependencies (offline fallback)
-RUN deno cache src/main.ts 2>/dev/null || echo "Cache step completed"
+# Install dependencies from lockfile (leverage Docker layer caching).
+RUN deno install
 
 # Copy source code
 COPY src/ ./src/
 COPY cli/ ./cli/
+
+# Copy environment file for build-time config resolution
+COPY .env.production ./.env.production
 
 # Compile to a standalone binary
 RUN deno compile \
     --allow-net \
     --allow-read \
     --allow-env \
-    --env-file=.env.production \
     --output=/app/dist/server \
     ./src/main.ts
 

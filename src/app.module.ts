@@ -4,6 +4,7 @@ import bodyParser from "koa-bodyparser";
 import errorMiddleware from "./common/middleware/error.middleware.ts";
 import requestLoggerMiddleware from "./common/middleware/request-logger.middleware.ts";
 import securityMiddleware from "./common/middleware/security.middleware.ts";
+import { rateLimiterMiddleware, RateLimitPresets } from "./common/middleware/rate-limiter.middleware.ts";
 import { registerRoutes } from "./common/router/register-routes.ts";
 import { registerSwagger } from "./common/swagger/swagger.middleware.ts";
 import { logger } from "./common/logger/logger.ts";
@@ -14,13 +15,16 @@ export class BootStrap {
     private app: Koa;
     private config: AppConfig;
     private server: ReturnType<Koa["listen"]> | null = null;
+    private isShuttingDown = false;
 
     constructor(config: AppConfig) {
         this.app = new Koa();
         this.config = config;
 
         // 设置 app.keys，用于 cookie 签名等场景。
-        this.app.keys = [config.env === "production" ? crypto.randomUUID() : "koa-project-dev-key"];
+        this.app.keys = [
+            config.env === "production" ? crypto.randomUUID() : "koa-project-dev-key",
+        ];
     }
 
     public async start() {
@@ -39,7 +43,17 @@ export class BootStrap {
             // 4. 请求日志中间件（记录每个请求）。
             this.app.use(requestLoggerMiddleware);
 
-            // 5. CORS 跨域中间件。
+            // 5. 全局限流中间件（基于 IP 的滑动窗口限流）。
+            this.app.use(
+                rateLimiterMiddleware({
+                    maxRequests: this.config.isProd
+                        ? RateLimitPresets.global.maxRequests
+                        : 1000,
+                    windowSeconds: RateLimitPresets.global.windowSeconds,
+                }),
+            );
+
+            // 6. CORS 跨域中间件。
             this.app.use(
                 cors({
                     origin: this.config.cors.origin,
@@ -50,7 +64,7 @@ export class BootStrap {
                 }),
             );
 
-            // 6. Body 解析中间件（限制大小，仅解析 JSON）。
+            // 7. Body 解析中间件（限制大小，仅解析 JSON 和 form）。
             this.app.use(
                 bodyParser({
                     enableTypes: ["json", "form"],
@@ -59,19 +73,17 @@ export class BootStrap {
                 }),
             );
 
-            // 7. 路由注册。
+            // 8. 路由注册。
             await registerRoutes(this.app);
 
-            // 8. Swagger 文档（仅在启用时）。
+            // 9. Swagger 文档（仅在启用时）。
             if (this.config.swagger.enabled) {
                 registerSwagger(this.app);
             }
 
-            // 9. 启动服务器。
+            // 10. 启动服务器。
             this.server = this.app.listen(this.config.port, () => {
-                logger.info(
-                    `🚀 Server running on http://localhost:${this.config.port}`,
-                );
+                logger.info(`🚀 Server running on http://localhost:${this.config.port}`);
                 logger.info(`🌱 Environment: ${this.config.env}`);
 
                 if (this.config.swagger.enabled) {
@@ -81,7 +93,7 @@ export class BootStrap {
                 }
             });
 
-            // 10. 优雅关闭。
+            // 11. 优雅关闭。
             this.registerGracefulShutdown();
         } catch (err) {
             logger.error("Application bootstrap failed", err);
@@ -89,32 +101,60 @@ export class BootStrap {
         }
     }
 
-    // 注册进程信号监听，实现优雅关闭。
+    /**
+     * 注册进程信号监听，实现优雅关闭。
+     *
+     * 处理流程：
+     * 1. 标记为关闭中状态（防止重复关闭）
+     * 2. 停止接收新连接
+     * 3. 等待进行中的请求完成（最多 30 秒）
+     * 4. 关闭数据库连接池
+     * 5. 退出进程
+     */
     private registerGracefulShutdown() {
         const shutdown = async (signal: string) => {
+            // 防止重复关闭。
+            if (this.isShuttingDown) return;
+            this.isShuttingDown = true;
+
             logger.info(`Received ${signal}, shutting down gracefully...`);
 
-            // 关闭 HTTP 服务器，不再接收新请求。
-            if (this.server) {
-                this.server.close(() => {
-                    logger.info("HTTP server closed");
-                });
-            }
+            // 设置一个超时强制退出（30 秒后仍未完成则强制退出）。
+            const forceExitTimeout = setTimeout(() => {
+                logger.error("Graceful shutdown timed out after 30s, forcing exit");
+                Deno.exit(1);
+            }, 30_000);
 
-            // 关闭数据库连接。
             try {
-                const sequelize = getSequelize();
-                await sequelize.close();
-                logger.info("Database connection closed");
-            } catch {
-                // 数据库可能未初始化。
-            }
+                // 关闭 HTTP 服务器，不再接收新请求。
+                if (this.server) {
+                    await new Promise<void>((resolve) => {
+                        this.server!.close(() => {
+                            logger.info("HTTP server closed");
+                            resolve();
+                        });
+                    });
+                }
 
-            logger.info("Graceful shutdown complete");
-            Deno.exit(0);
+                // 关闭数据库连接。
+                try {
+                    const sequelize = getSequelize();
+                    await sequelize.close();
+                    logger.info("Database connection closed");
+                } catch {
+                    // 数据库可能未初始化，忽略。
+                }
+
+                clearTimeout(forceExitTimeout);
+                logger.info("Graceful shutdown complete");
+                Deno.exit(0);
+            } catch (err) {
+                clearTimeout(forceExitTimeout);
+                logger.error("Graceful shutdown failed", err);
+                Deno.exit(1);
+            }
         };
 
-        // 监听 SIGINT (Ctrl+C) 和 SIGTERM。
         Deno.addSignalListener("SIGINT", () => shutdown("SIGINT"));
         Deno.addSignalListener("SIGTERM", () => shutdown("SIGTERM"));
     }

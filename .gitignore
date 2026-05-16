@@ -9,7 +9,7 @@ node_modules
 dist/
 
 # Deno
-deno.lock
+# deno.lock is intentionally tracked (lockfile for reproducible builds)
 
 # IDE
 .vscode/

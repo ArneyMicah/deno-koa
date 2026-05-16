@@ -1,4 +1,5 @@
 import { join, relative, toFileUrl } from "@std/path";
+import { logger } from "../logger/logger.ts";
 
 export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 export type RouteHandler<T> = keyof T & string;
@@ -52,11 +53,16 @@ export async function loadControllers() {
     for (const controllerFile of controllerFiles) {
         // Deno 动态导入本地文件时需要 file:// URL。
         const moduleUrl = toFileUrl(controllerFile).href;
-        const module = await import(moduleUrl);
-        const Controller = module.default as ControllerConstructor | undefined;
+        try {
+            const module = await import(moduleUrl);
+            const Controller = module.default as ControllerConstructor | undefined;
 
-        if (Controller?.routes?.length) {
-            controllers.push({ Controller, controllerFile });
+            if (Controller?.routes?.length) {
+                controllers.push({ Controller, controllerFile });
+            }
+        } catch (err) {
+            logger.error(`无法加载 Controller: ${controllerFile}`, err);
+            throw new Error(`加载 Controller 失败: ${controllerFile}`);
         }
     }
 
@@ -65,6 +71,13 @@ export async function loadControllers() {
 
 // 递归查找模块目录下所有 controller 文件。
 async function findControllerFiles(dir: string): Promise<string[]> {
+    try {
+        await Deno.stat(dir);
+    } catch {
+        logger.warn(`模块目录不存在: ${dir}`);
+        return [];
+    }
+
     const files: string[] = [];
 
     for await (const entry of Deno.readDir(dir)) {
