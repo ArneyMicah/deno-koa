@@ -184,12 +184,54 @@ src/modules/**/*.controller.ts
 
 并完成 Koa 路由注册和 OpenAPI 文档生成。
 
+## 构建与打包
+
+项目支持通过 `deno compile` 将应用编译为独立的可执行文件（无需 Deno 运行时）。
+
+### 本地编译
+
+```powershell
+# 编译当前平台（输出到 dist/ 目录）
+deno task build
+
+# 指定目标平台
+deno task build:win      # Windows
+deno task build:linux    # Linux
+deno task build:macos    # macOS
+
+# 清理编译产物
+deno task clean
+```
+
+编译产物在 `dist/` 目录下，可直接运行：
+
+```powershell
+# Windows
+.\dist\server.exe
+
+# Linux / macOS
+./dist/server
+```
+
+### Docker 部署
+
+```powershell
+# 构建镜像
+docker build -t deno-koa .
+
+# 运行容器
+docker run -p 3000:3000 --env-file .env.production deno-koa
+```
+
 ## 常用命令
 
 ```powershell
-deno task dev          # 启动开发服务器（热重载）
-deno task start        # 启动生产服务器
-deno run generate      # 生成 CRUD 模块
-deno task fmt          # 格式化代码
-deno task lint         # 代码检查
-deno check src/main.ts # 类型检查
+deno task dev           # 启动开发服务器（热重载）
+deno task start         # 启动生产服务器
+deno task build         # 编译为独立可执行文件
+deno run generate       # 生成 CRUD 模块
+deno task fmt           # 格式化代码
+deno task lint          # 代码检查
+deno task check         # 类型检查
+deno task cache         # 缓存依赖
+deno task clean         # 清理编译产物

@@ -4,29 +4,39 @@ import type { Context } from "koa";
 import { loadConfig } from "../../config/app.config.ts";
 import { createOpenApiDocument } from "./openapi.ts";
 
+// Swagger 页面的专用 CSP：允许 unpkg.com 的外部样式和脚本资源加载。
+const SWAGGER_CSP = [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://unpkg.com",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "img-src 'self' data: https:",
+].join("; ");
+
 // 注册 Swagger 文档接口：/docs 展示 UI，/docs/openapi.json 返回文档数据。
 export function registerSwagger(app: Koa) {
-  const router = new Router();
-  const config = loadConfig();
+    const router = new Router();
+    const config = loadConfig();
 
-  router.get("/docs/openapi.json", async (ctx: Context) => {
-    ctx.body = await createOpenApiDocument({
-      title: config.swagger.title,
-      version: config.swagger.version,
+    router.get("/docs/openapi.json", async (ctx: Context) => {
+        ctx.body = await createOpenApiDocument({
+            title: config.swagger.title,
+            version: config.swagger.version,
+        });
     });
-  });
 
-  router.get("/docs", (ctx: Context) => {
-    ctx.type = "html";
-    ctx.body = createSwaggerHtml("/docs/openapi.json");
-  });
+    router.get("/docs", (ctx: Context) => {
+        // 覆盖全局 CSP 策略，允许 Swagger UI 的外部资源。
+        ctx.set("Content-Security-Policy", SWAGGER_CSP);
+        ctx.type = "html";
+        ctx.body = createSwaggerHtml("/docs/openapi.json");
+    });
 
-  app.use(router.routes());
-  app.use(router.allowedMethods());
+    app.use(router.routes());
+    app.use(router.allowedMethods());
 }
 
 function createSwaggerHtml(openApiUrl: string) {
-  return `<!doctype html>
+    return `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />

@@ -10,7 +10,9 @@
  *   deno run -A cli/generate.ts article
  *
  * 这会在 src/modules/<模块名>/ 下生成:
- *   - entity/<模块名>.entity.ts    (实体 + DTO)
+ *   - entity/<模块名>.entity.ts    (实体，只放服务端内部结构)
+ *   - dto/create-<模块名>.dto.ts   (创建请求参数)
+ *   - dto/update-<模块名>.dto.ts   (更新请求参数)
  *   - <模块名>.service.ts          (CRUD 服务)
  *   - <模块名>.controller.ts       (RESTful 控制器)
  *   - <模块名>.module.ts           (模块声明)
@@ -35,6 +37,7 @@ const pascalName = moduleName.charAt(0).toUpperCase() + moduleName.slice(1);
 // 目标目录
 const moduleDir = `src/modules/${moduleName}`;
 const entityDir = `${moduleDir}/entity`;
+const dtoDir = `${moduleDir}/dto`;
 
 // 检查模块是否已存在
 try {
@@ -49,24 +52,29 @@ try {
 
 // ===== 模板内容 =====
 
-const entityTemplate = `// ${pascalName} 实体：描述系统内部使用的${pascalName}数据结构。
+const entityTemplate = `// ${pascalName} 实体：描述系统内部使用的完整${pascalName}数据结构（含服务端字段如 id）。
 export interface ${pascalName}Entity {
   id: number;
   name: string;
 }
+`;
 
-// 创建${pascalName}时的请求参数
+const createDtoTemplate = `// 创建${pascalName}时客户端允许提交的数据结构。
 export interface Create${pascalName}Dto {
   name: string;
 }
-
-// 更新${pascalName}时的请求参数
-export interface Update${pascalName}Dto {
-  name?: string;
-}
 `;
 
-const serviceTemplate = `import type { ${pascalName}Entity, Create${pascalName}Dto, Update${pascalName}Dto } from "./entity/${moduleName}.entity.ts";
+const updateDtoTemplate = `import type { Create${pascalName}Dto } from "./create-${moduleName}.dto.ts";
+
+// 更新${pascalName}时所有字段都可选填。
+export type Update${pascalName}Dto = Partial<Create${pascalName}Dto>;
+`;
+
+const serviceTemplate = `import { logger } from "../../common/logger/logger.ts";
+import type { ${pascalName}Entity } from "./entity/${moduleName}.entity.ts";
+import type { Create${pascalName}Dto } from "./dto/create-${moduleName}.dto.ts";
+import type { Update${pascalName}Dto } from "./dto/update-${moduleName}.dto.ts";
 
 // ${pascalName} 服务：放业务逻辑和数据访问，controller 不直接处理数据细节。
 export class ${pascalName}Service {
@@ -77,41 +85,66 @@ export class ${pascalName}Service {
 
     // 查询列表。
     public findAll(): ${pascalName}Entity[] {
-        return this.items;
+        try {
+            return this.items;
+        } catch (err) {
+            logger.error("${pascalName}Service.findAll failed", err);
+            throw err;
+        }
     }
 
     // 根据 ID 查询单个。
     public findById(id: number): ${pascalName}Entity | undefined {
-        return this.items.find((item) => item.id === id);
+        try {
+            return this.items.find((item) => item.id === id);
+        } catch (err) {
+            logger.error("${pascalName}Service.findById failed", { id, error: err });
+            throw err;
+        }
     }
 
     // 创建。
     public create(dto: Create${pascalName}Dto): ${pascalName}Entity {
-        const newItem: ${pascalName}Entity = {
-            id: this.nextId++,
-            name: dto.name,
-        };
-        this.items.push(newItem);
-        return newItem;
+        try {
+            const newItem: ${pascalName}Entity = {
+                id: this.nextId++,
+                name: dto.name,
+            };
+            this.items.push(newItem);
+            return newItem;
+        } catch (err) {
+            logger.error("${pascalName}Service.create failed", { dto, error: err });
+            throw err;
+        }
     }
 
     // 更新。
     public update(id: number, dto: Update${pascalName}Dto): ${pascalName}Entity | undefined {
-        const item = this.items.find((i) => i.id === id);
-        if (!item) return undefined;
+        try {
+            const item = this.items.find((i) => i.id === id);
+            if (!item) return undefined;
 
-        if (dto.name !== undefined) item.name = dto.name;
+            if (dto.name !== undefined) item.name = dto.name;
 
-        return item;
+            return item;
+        } catch (err) {
+            logger.error("${pascalName}Service.update failed", { id, dto, error: err });
+            throw err;
+        }
     }
 
     // 删除。
     public delete(id: number): boolean {
-        const index = this.items.findIndex((item) => item.id === id);
-        if (index === -1) return false;
+        try {
+            const index = this.items.findIndex((item) => item.id === id);
+            if (index === -1) return false;
 
-        this.items.splice(index, 1);
-        return true;
+            this.items.splice(index, 1);
+            return true;
+        } catch (err) {
+            logger.error("${pascalName}Service.delete failed", { id, error: err });
+            throw err;
+        }
     }
 }
 `;
@@ -120,7 +153,8 @@ const controllerTemplate = `import type { Context } from "koa";
 import { success, fail } from "../../common/utils/response.ts";
 import type { ControllerRoute } from "../../common/router/controller-loader.ts";
 import { ${pascalName}Service } from "./${moduleName}.service.ts";
-import type { Create${pascalName}Dto, Update${pascalName}Dto } from "./entity/${moduleName}.entity.ts";
+import type { Create${pascalName}Dto } from "./dto/create-${moduleName}.dto.ts";
+import type { Update${pascalName}Dto } from "./dto/update-${moduleName}.dto.ts";
 
 // ${pascalName} 控制器：负责接收请求、调用 service，并组织 HTTP 响应。
 export default class ${pascalName}Controller {
@@ -297,11 +331,20 @@ export default {
 try {
     // 创建目录
     await Deno.mkdir(entityDir, { recursive: true });
+    await Deno.mkdir(dtoDir, { recursive: true });
 
-    // 写入文件
+    // 写入 entity 文件
     await Deno.writeTextFile(`${entityDir}/${moduleName}.entity.ts`, entityTemplate);
     console.log(`  ✅ 创建: ${entityDir}/${moduleName}.entity.ts`);
 
+    // 写入 dto 文件
+    await Deno.writeTextFile(`${dtoDir}/create-${moduleName}.dto.ts`, createDtoTemplate);
+    console.log(`  ✅ 创建: ${dtoDir}/create-${moduleName}.dto.ts`);
+
+    await Deno.writeTextFile(`${dtoDir}/update-${moduleName}.dto.ts`, updateDtoTemplate);
+    console.log(`  ✅ 创建: ${dtoDir}/update-${moduleName}.dto.ts`);
+
+    // 写入 service / controller / module 文件
     await Deno.writeTextFile(`${moduleDir}/${moduleName}.service.ts`, serviceTemplate);
     console.log(`  ✅ 创建: ${moduleDir}/${moduleName}.service.ts`);
 
@@ -314,6 +357,9 @@ try {
     console.log(`\n🎉 模块 "${moduleName}" 创建成功！`);
     console.log(`\n📁 生成结构:`);
     console.log(`  src/modules/${moduleName}/`);
+    console.log(`  ├── dto/`);
+    console.log(`  │   ├── create-${moduleName}.dto.ts`);
+    console.log(`  │   └── update-${moduleName}.dto.ts`);
     console.log(`  ├── entity/`);
     console.log(`  │   └── ${moduleName}.entity.ts`);
     console.log(`  ├── ${moduleName}.service.ts`);
