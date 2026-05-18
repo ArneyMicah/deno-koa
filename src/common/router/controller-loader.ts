@@ -1,4 +1,4 @@
-import { join, relative, toFileUrl } from "@std/path";
+import { join, relative, toFileUrl, fromFileUrl, dirname } from "@std/path";
 import { logger } from "../logger/logger.ts";
 
 export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
@@ -6,7 +6,9 @@ export type RouteHandler<T> = keyof T & string;
 
 export interface SwaggerResponse {
     description: string;
-    content?: Record<string, unknown>;
+    content?: Record<string, {
+        schema: Record<string, unknown>;
+    }>;
 }
 
 /**
@@ -30,7 +32,7 @@ export interface ControllerRoute<T = Record<string, unknown>> {
     tags?: string[];
     parameters?: SwaggerParameter[];
     requestBody?: Record<string, unknown>;
-    responses?: Record<number, SwaggerResponse>;
+    responses?: Record<string, SwaggerResponse>;
 }
 
 export interface ControllerConstructor<T = Record<string, unknown>> {
@@ -46,7 +48,9 @@ export interface LoadedController<T = Record<string, unknown>> {
 
 // 扫描 src/modules/**/*.controller.ts，读取默认导出的 controller。
 export async function loadControllers() {
-    const modulesDir = join(Deno.cwd(), "src", "modules");
+    // 基于当前模块位置解析 modules 目录，兼容编译后和容器部署场景。
+    const moduleDir = dirname(fromFileUrl(import.meta.url));
+    const modulesDir = join(moduleDir, "..", "..", "modules");
     const controllerFiles = await findControllerFiles(modulesDir);
     const controllers: LoadedController[] = [];
 

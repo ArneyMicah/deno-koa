@@ -29,7 +29,7 @@ export default class LoginController {
             summary: "获取Login列表",
             tags: ["Login"],
             responses: {
-                200: {
+                "200": {
                     description: "Login列表",
                 },
             },
@@ -40,11 +40,20 @@ export default class LoginController {
             handler: "getById",
             summary: "根据 ID 获取Login",
             tags: ["Login"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "Login ID",
+                    schema: { type: "integer" },
+                },
+            ],
             responses: {
-                200: {
+                "200": {
                     description: "Login信息",
                 },
-                404: {
+                "404": {
                     description: "Login不存在",
                 },
             },
@@ -63,7 +72,7 @@ export default class LoginController {
                 required: ["name"],
             },
             responses: {
-                201: {
+                "201": {
                     description: "创建成功",
                 },
             },
@@ -74,6 +83,15 @@ export default class LoginController {
             handler: "update",
             summary: "更新Login",
             tags: ["Login"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "Login ID",
+                    schema: { type: "integer" },
+                },
+            ],
             requestBody: {
                 type: "object",
                 properties: {
@@ -81,10 +99,10 @@ export default class LoginController {
                 },
             },
             responses: {
-                200: {
+                "200": {
                     description: "更新成功",
                 },
-                404: {
+                "404": {
                     description: "Login不存在",
                 },
             },
@@ -95,11 +113,20 @@ export default class LoginController {
             handler: "delete",
             summary: "删除Login",
             tags: ["Login"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "Login ID",
+                    schema: { type: "integer" },
+                },
+            ],
             responses: {
-                200: {
+                "200": {
                     description: "删除成功",
                 },
-                404: {
+                "404": {
                     description: "Login不存在",
                 },
             },

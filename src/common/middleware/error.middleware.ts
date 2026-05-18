@@ -11,10 +11,24 @@ export default async function errorMiddleware(ctx: Context, next: Next) {
             ctx.body = fail("Not Found", 404);
         }
     } catch (err) {
-        const error = err as { status?: number; message?: string };
+        const error = err as {
+            status?: number;
+            message?: string;
+            errors?: { field: string; message: string }[];
+        };
         const status = error.status || 500;
+
         ctx.status = status;
-        ctx.body = fail(error.message || "Internal Server Error", status);
+
+        // 如果是校验错误（validateOrThrow 抛出的），附带字段级别错误详情。
+        if (error.errors?.length) {
+            ctx.body = fail(error.message || "请求参数校验失败", status, {
+                errors: error.errors,
+            });
+        } else {
+            ctx.body = fail(error.message || "Internal Server Error", status);
+        }
+
         logger.error("Unhandled request error", {
             requestId: ctx.state.requestId as string | undefined,
             error: err,

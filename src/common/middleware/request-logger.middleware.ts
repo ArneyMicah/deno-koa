@@ -29,7 +29,5 @@ export default async function requestLoggerMiddleware(ctx: Context, next: Next) 
 }
 
 function generateRequestId(): string {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).slice(2, 8);
-    return `${timestamp}-${random}`;
+    return crypto.randomUUID();
 }

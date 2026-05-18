@@ -105,7 +105,6 @@ export function validateOrThrow<T>(
         };
         error.status = 422;
         error.errors = errors;
-        error.message = JSON.stringify({ errors });
         throw error;
     }
 

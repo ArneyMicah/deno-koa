@@ -27,8 +27,10 @@ export default async function securityMiddleware(ctx: Context, next: Next) {
     ctx.set("X-DNS-Prefetch-Control", "off");
 
     // ----- CSP 仅 HTML 页面需要（JSON API 响应无需 CSP）-----
+    // 检查 Content-Type 是否已被显式设置为 text/html（如 Swagger 页面）
     const contentType = ctx.response.get("Content-Type") || "";
-    const isHtml = contentType.includes("text/html") || (typeof ctx.body === "string" && !ctx.body.startsWith("{") && !ctx.body.startsWith("["));
+    // 或者检查请求的 Accept 头是否明确偏好 HTML 而非 JSON
+    const isHtml = contentType.includes("text/html") || ctx.accepts("html", "json") === "html";
 
     if (isHtml && !ctx.response.get("Content-Security-Policy")) {
         ctx.set("Content-Security-Policy", "default-src 'self'");

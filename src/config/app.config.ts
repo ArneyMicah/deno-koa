@@ -45,8 +45,25 @@ export interface AppConfig {
 
 const DEFAULT_PORT = 3000;
 
-// 统一读取环境配置，优先使用环境变量，再回落到默认值。
+let cachedConfig: AppConfig | null = null;
+
+/**
+ * 统一读取环境配置，优先使用环境变量，再回落到默认值。
+ * 使用单例模式缓存，避免多处调用时重复解析环境变量。
+ */
 export function loadConfig(): AppConfig {
+    if (cachedConfig) return cachedConfig;
+
+    cachedConfig = buildConfig();
+    return cachedConfig;
+}
+
+/** 仅用于测试：清除缓存的配置。 */
+export function clearConfigCache(): void {
+    cachedConfig = null;
+}
+
+function buildConfig(): AppConfig {
     const env = resolveEnv(Deno.env.get("APP_ENV") || Deno.env.get("DENO_ENV"));
 
     // 启动时校验关键环境变量。
@@ -76,7 +93,7 @@ export function loadConfig(): AppConfig {
 
     const corsOrigin = Deno.env.get("CORS_ORIGIN") || "*";
 
-    return {
+    const config: AppConfig = {
         env,
         isDev: env === "development",
         isProd: env === "production",
@@ -112,6 +129,9 @@ export function loadConfig(): AppConfig {
             expiresIn: Deno.env.get("JWT_EXPIRES_IN") || "7d",
         },
     };
+
+    logger.info(`Config loaded: env=${config.env} port=${config.port} db=${config.database.enabled} swagger=${config.swagger.enabled}`);
+    return config;
 }
 
 function resolveEnv(env?: string | null): AppEnv {

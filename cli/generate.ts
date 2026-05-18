@@ -14,7 +14,7 @@
  *   - dto/create-<模块名>.dto.ts   (创建请求参数)
  *   - dto/update-<模块名>.dto.ts   (更新请求参数)
  *   - <模块名>.service.ts          (CRUD 服务)
- *   - <模块名>.controller.ts       (RESTful 控制器)
+ *   - <模块名>.controller.ts       (RESTful 控制器，含 Zod 校验)
  *   - <模块名>.module.ts           (模块声明)
  */
 
@@ -149,12 +149,22 @@ export class ${pascalName}Service {
 }
 `;
 
-const controllerTemplate = `import type { Context } from "koa";
+const controllerTemplate = `import { z } from "zod";
+import type { Context } from "koa";
 import { success, fail } from "../../common/utils/response.ts";
+import { validate } from "../../common/utils/validate.ts";
 import type { ControllerRoute } from "../../common/router/controller-loader.ts";
 import { ${pascalName}Service } from "./${moduleName}.service.ts";
-import type { Create${pascalName}Dto } from "./dto/create-${moduleName}.dto.ts";
-import type { Update${pascalName}Dto } from "./dto/update-${moduleName}.dto.ts";
+
+// --- Zod 校验 Schema ---
+
+const Create${pascalName}Schema = z.object({
+    name: z.string().min(1, "名称不能为空"),
+});
+
+const Update${pascalName}Schema = z.object({
+    name: z.string().min(1, "名称不能为空").optional(),
+});
 
 // ${pascalName} 控制器：负责接收请求、调用 service，并组织 HTTP 响应。
 export default class ${pascalName}Controller {
@@ -170,7 +180,7 @@ export default class ${pascalName}Controller {
             summary: "获取${pascalName}列表",
             tags: ["${pascalName}"],
             responses: {
-                200: {
+                "200": {
                     description: "${pascalName}列表",
                 },
             },
@@ -181,11 +191,20 @@ export default class ${pascalName}Controller {
             handler: "getById",
             summary: "根据 ID 获取${pascalName}",
             tags: ["${pascalName}"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "${pascalName} ID",
+                    schema: { type: "integer" },
+                },
+            ],
             responses: {
-                200: {
+                "200": {
                     description: "${pascalName}信息",
                 },
-                404: {
+                "404": {
                     description: "${pascalName}不存在",
                 },
             },
@@ -204,7 +223,7 @@ export default class ${pascalName}Controller {
                 required: ["name"],
             },
             responses: {
-                201: {
+                "201": {
                     description: "创建成功",
                 },
             },
@@ -215,6 +234,15 @@ export default class ${pascalName}Controller {
             handler: "update",
             summary: "更新${pascalName}",
             tags: ["${pascalName}"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "${pascalName} ID",
+                    schema: { type: "integer" },
+                },
+            ],
             requestBody: {
                 type: "object",
                 properties: {
@@ -222,10 +250,10 @@ export default class ${pascalName}Controller {
                 },
             },
             responses: {
-                200: {
+                "200": {
                     description: "更新成功",
                 },
-                404: {
+                "404": {
                     description: "${pascalName}不存在",
                 },
             },
@@ -236,11 +264,20 @@ export default class ${pascalName}Controller {
             handler: "delete",
             summary: "删除${pascalName}",
             tags: ["${pascalName}"],
+            parameters: [
+                {
+                    name: "id",
+                    in: "path",
+                    required: true,
+                    description: "${pascalName} ID",
+                    schema: { type: "integer" },
+                },
+            ],
             responses: {
-                200: {
+                "200": {
                     description: "删除成功",
                 },
-                404: {
+                "404": {
                     description: "${pascalName}不存在",
                 },
             },
@@ -271,13 +308,8 @@ export default class ${pascalName}Controller {
 
     // POST /${moduleName} - 创建
     public create(ctx: Context) {
-        const body = ctx.request.body as unknown as Create${pascalName}Dto;
-
-        if (!body.name) {
-            ctx.status = 400;
-            ctx.body = fail("名称不能为空", 400);
-            return;
-        }
+        const body = validate(ctx, "body", Create${pascalName}Schema);
+        if (!body) return; // validate 已写入 422 响应
 
         const item = this.service.create(body);
         ctx.status = 201;
@@ -287,7 +319,8 @@ export default class ${pascalName}Controller {
     // PUT /${moduleName}/:id - 更新
     public update(ctx: Context) {
         const id = parseInt(ctx.params.id, 10);
-        const body = ctx.request.body as unknown as Update${pascalName}Dto;
+        const body = validate(ctx, "body", Update${pascalName}Schema);
+        if (!body) return;
 
         const item = this.service.update(id, body);
 

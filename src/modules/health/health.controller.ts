@@ -20,7 +20,7 @@ export default class HealthController {
             description: "返回服务总体健康状态（liveness probe）",
             tags: ["Health"],
             responses: {
-                200: { description: "服务正常" },
+                "200": { description: "服务正常" },
             },
         },
         {
@@ -31,8 +31,8 @@ export default class HealthController {
             description: "返回服务就绪状态，包含数据库连接（readiness probe）",
             tags: ["Health"],
             responses: {
-                200: { description: "服务就绪" },
-                503: { description: "服务未就绪" },
+                "200": { description: "服务就绪" },
+                "503": { description: "服务未就绪" },
             },
         },
     ];

@@ -18,6 +18,21 @@ interface WindowEntry {
     timestamps: number[];
 }
 
+// 模块级清理注册表：避免多次调用 rateLimiterMiddleware 注册重复的信号监听器。
+const cleanupFns: (() => void)[] = [];
+let signalHandlersRegistered = false;
+
+function registerGlobalShutdown() {
+    if (signalHandlersRegistered) return;
+
+    const shutdown = () => {
+        for (const fn of cleanupFns) fn();
+    };
+    Deno.addSignalListener("SIGINT", shutdown);
+    Deno.addSignalListener("SIGTERM", shutdown);
+    signalHandlersRegistered = true;
+}
+
 /**
  * 基于内存滑动窗口的请求频率限制中间件。
  *
@@ -31,18 +46,34 @@ export function rateLimiterMiddleware(options: RateLimiterOptions) {
 
     // 每个 key 对应的请求时间戳列表（毫秒）。
     const store = new Map<string, WindowEntry>();
+    let stopped = false;
 
-    // 定期清理过期 key，防止内存泄漏。
-    const cleanInterval = setInterval(() => {
+    // 清理过期 key 和过期时间戳。
+    function cleanupExpiredKeys() {
         const now = Date.now();
-        const expireThreshold = now - windowSeconds * 1000 - 60_000; // 容忍 1 分钟
+        const windowStart = now - windowSeconds * 1000;
         for (const [key, entry] of store) {
-            entry.timestamps = entry.timestamps.filter((t) => t > now - windowSeconds * 1000);
-            if (entry.timestamps.length === 0 && now - Math.max(...(entry.timestamps.length ? entry.timestamps : [now])) > expireThreshold) {
+            entry.timestamps = entry.timestamps.filter((t) => t > windowStart);
+            if (entry.timestamps.length === 0) {
                 store.delete(key);
             }
         }
+    }
+
+    // 定期清理过期 key，防止内存泄漏。
+    const cleanInterval = setInterval(() => {
+        if (stopped) return;
+        cleanupExpiredKeys();
     }, 60_000);
+
+    // 注册到模块级清理表（仅注册一次全局信号监听）。
+    const shutdown = () => {
+        stopped = true;
+        clearInterval(cleanInterval);
+        store.clear();
+    };
+    cleanupFns.push(shutdown);
+    registerGlobalShutdown();
 
     return async (ctx: Context, next: Next) => {
         const key = keyGenerator(ctx);
@@ -66,7 +97,9 @@ export function rateLimiterMiddleware(options: RateLimiterOptions) {
             ctx.set("Retry-After", String(retryAfter));
             ctx.set("X-RateLimit-Limit", String(maxRequests));
             ctx.set("X-RateLimit-Remaining", "0");
-            ctx.set("X-RateLimit-Reset", String(Math.ceil((entry.timestamps[0] + windowSeconds * 1000) / 1000)));
+            ctx.set("X-RateLimit-Reset", String(
+                Math.ceil((entry.timestamps[0] + windowSeconds * 1000) / 1000),
+            ));
 
             ctx.status = 429;
             ctx.body = fail("请求过于频繁，请稍后再试", 429);
@@ -85,7 +118,9 @@ export function rateLimiterMiddleware(options: RateLimiterOptions) {
         const remaining = maxRequests - entry.timestamps.length;
         ctx.set("X-RateLimit-Limit", String(maxRequests));
         ctx.set("X-RateLimit-Remaining", String(remaining));
-        ctx.set("X-RateLimit-Reset", String(Math.ceil((entry.timestamps[0] + windowSeconds * 1000) / 1000)));
+        ctx.set("X-RateLimit-Reset", String(
+            Math.ceil((entry.timestamps[0] + windowSeconds * 1000) / 1000),
+        ));
 
         await next();
     };
